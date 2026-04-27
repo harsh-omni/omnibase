@@ -1,4 +1,4 @@
-.PHONY: install setup dev test docker-up docker-down update status clean help
+.PHONY: install setup dev test docker-up docker-down seed-keycloak update status clean help
 
 REPOS_DIR := $(CURDIR)/repos
 SHELL := /bin/bash
@@ -6,9 +6,10 @@ SHELL := /bin/bash
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
-install: ## Clone all repos, build Python envs, install Node deps
+install: ## Clone all repos, build Python envs, install Node deps, seed Keycloak
 	@echo "==> Installing ONEX platform..."
 	@bash install.sh
+	@$(MAKE) seed-keycloak
 	@echo "==> Installation complete. Run 'make setup' to configure environment."
 
 setup: ## Create .env from template and start Docker infrastructure
@@ -44,10 +45,10 @@ test: ## Run tests across all Python repos
 	@echo ""
 	@echo "==> Tests complete."
 
-docker-up: ## Start Docker infrastructure (Postgres, Redpanda, Valkey)
+docker-up: ## Start Docker infrastructure (Postgres, Redpanda, Valkey, Keycloak)
 	@echo "==> Starting Docker infrastructure..."
 	@if [ -d $(REPOS_DIR)/omnibase_infra/docker ]; then \
-		cd $(REPOS_DIR)/omnibase_infra && docker compose -f docker/docker-compose.infra.yml up -d; \
+		cd $(REPOS_DIR)/omnibase_infra && docker compose -f docker/docker-compose.infra.yml --profile auth up -d; \
 	else \
 		echo "ERROR: omnibase_infra not found. Run 'make install' first."; \
 		exit 1; \
@@ -58,6 +59,21 @@ docker-down: ## Stop Docker infrastructure
 	@if [ -d $(REPOS_DIR)/omnibase_infra/docker ]; then \
 		cd $(REPOS_DIR)/omnibase_infra && docker compose -f docker/docker-compose.infra.yml down; \
 	fi
+
+seed-keycloak: ## Reconcile Keycloak clients from desired-clients.json
+	@echo "==> Waiting for Keycloak to become ready..."
+	@until curl -fsS -m 3 http://localhost:28080/realms/omninode/.well-known/openid-configuration > /dev/null 2>&1; do \
+		echo "   Keycloak not ready — retrying in 3s..."; \
+		sleep 3; \
+	done
+	@echo "==> Keycloak ready. Running client reconciler..."
+	@set -a && . ~/.omnibase/.env && set +a && \
+		python $(REPOS_DIR)/omnibase_infra/scripts/seed-keycloak-clients.py \
+			--kc-url http://localhost:28080 --realm omninode \
+			--admin-username "$${KEYCLOAK_ADMIN_USERNAME:-admin}" \
+			--admin-password "$${KEYCLOAK_ADMIN_PASSWORD:-keycloak-dev-password}" \
+			--reset-bootstrap-admin \
+			--config $(REPOS_DIR)/omnibase_infra/docker/keycloak/desired-clients.json
 
 update: ## Pull latest main across all repos
 	@echo "==> Updating all repositories..."
