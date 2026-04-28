@@ -6,13 +6,12 @@ SHELL := /bin/bash
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
-install: ## Clone all repos, build Python envs, install Node deps, seed Keycloak
+install: ## Clone all repos, build Python envs, install Node deps
 	@echo "==> Installing ONEX platform..."
 	@bash install.sh
-	@$(MAKE) seed-keycloak
-	@echo "==> Installation complete. Run 'make setup' to configure environment."
+	@echo "==> Installation complete. Run 'make setup' to configure environment, start infra, and seed Keycloak."
 
-setup: ## Create .env from template and start Docker infrastructure
+setup: ## Create .env from template, start Docker infrastructure, seed Keycloak
 	@if [ ! -f .env ]; then \
 		cp .env.example .env; \
 		echo "==> Created .env from template. Edit it with your configuration."; \
@@ -20,6 +19,7 @@ setup: ## Create .env from template and start Docker infrastructure
 		echo "==> .env already exists, skipping."; \
 	fi
 	@$(MAKE) docker-up
+	@$(MAKE) seed-keycloak
 
 dev: ## Start omnidash dev server and show onex CLI help
 	@echo "==> Starting development environment..."
@@ -57,21 +57,33 @@ docker-up: ## Start Docker infrastructure (Postgres, Redpanda, Valkey, Keycloak)
 docker-down: ## Stop Docker infrastructure
 	@echo "==> Stopping Docker infrastructure..."
 	@if [ -d $(REPOS_DIR)/omnibase_infra/docker ]; then \
-		cd $(REPOS_DIR)/omnibase_infra && docker compose -f docker/docker-compose.infra.yml down; \
+		cd $(REPOS_DIR)/omnibase_infra && docker compose -f docker/docker-compose.infra.yml --profile auth down; \
 	fi
 
-seed-keycloak: ## Reconcile Keycloak clients from desired-clients.json
-	@echo "==> Waiting for Keycloak to become ready..."
-	@until curl -fsS -m 3 http://localhost:28080/realms/omninode/.well-known/openid-configuration > /dev/null 2>&1; do \
-		echo "   Keycloak not ready — retrying in 3s..."; \
+seed-keycloak: ## Reconcile Keycloak clients from desired-clients.json (idempotent)
+	@if [ ! -f ~/.omnibase/.env ]; then \
+		echo "ERROR: ~/.omnibase/.env not found. Create it with KEYCLOAK_ADMIN_USERNAME and KEYCLOAK_ADMIN_PASSWORD set."; \
+		exit 1; \
+	fi
+	@echo "==> Waiting for Keycloak to become ready (max 90s)..."
+	@i=0; until curl -fsS -m 3 http://localhost:28080/realms/omninode/.well-known/openid-configuration > /dev/null 2>&1; do \
+		i=$$((i+1)); \
+		if [ $$i -gt 30 ]; then \
+			echo "ERROR: Keycloak did not become ready within 90s. Check 'docker ps' and Keycloak logs."; \
+			exit 1; \
+		fi; \
+		echo "   Keycloak not ready — retrying in 3s... ($$i/30)"; \
 		sleep 3; \
 	done
 	@echo "==> Keycloak ready. Running client reconciler..."
+	@# --reset-bootstrap-admin invokes 'kc.sh bootstrap-admin user' inside the local Keycloak
+	@# container so the master-realm admin password matches KEYCLOAK_ADMIN_PASSWORD.
+	@# Skipped automatically when --kc-url is not localhost (prod uses a different flow).
 	@set -a && . ~/.omnibase/.env && set +a && \
-		python $(REPOS_DIR)/omnibase_infra/scripts/seed-keycloak-clients.py \
+		python3 $(REPOS_DIR)/omnibase_infra/scripts/seed-keycloak-clients.py \
 			--kc-url http://localhost:28080 --realm omninode \
-			--admin-username "$${KEYCLOAK_ADMIN_USERNAME:-admin}" \
-			--admin-password "$${KEYCLOAK_ADMIN_PASSWORD:-keycloak-dev-password}" \
+			--admin-username "$${KEYCLOAK_ADMIN_USERNAME:?KEYCLOAK_ADMIN_USERNAME must be set in ~/.omnibase/.env}" \
+			--admin-password "$${KEYCLOAK_ADMIN_PASSWORD:?KEYCLOAK_ADMIN_PASSWORD must be set in ~/.omnibase/.env}" \
 			--reset-bootstrap-admin \
 			--config $(REPOS_DIR)/omnibase_infra/docker/keycloak/desired-clients.json
 
