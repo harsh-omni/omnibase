@@ -25,16 +25,10 @@ if ! command -v git &>/dev/null; then
     missing+=("git")
 fi
 
-if ! command -v docker &>/dev/null; then
-    missing+=("docker")
-fi
-
-if ! command -v docker compose version &>/dev/null 2>&1 && ! docker compose version &>/dev/null 2>&1; then
-    # Try the plugin form
-    if ! docker compose version &>/dev/null 2>&1; then
-        missing+=("docker-compose")
-    fi
-fi
+# This installer must succeed on a machine that has only the Python / Node /
+# git / uv prerequisites. Local infrastructure services are opt-in and live
+# in `repos/omnibase_infra/`. Run them from there after this installer
+# completes (see that repo's Makefile and getting-started docs).
 
 if ! command -v uv &>/dev/null; then
     missing+=("uv (install: curl -LsSf https://astral.sh/uv/install.sh | sh)")
@@ -137,8 +131,10 @@ echo ""
 info "Installation complete!"
 echo ""
 echo "Next steps:"
-echo "  1. Edit .env with your configuration (passwords, endpoints)"
-echo "  2. Run 'make setup' to start Docker infrastructure"
-echo "  3. Run 'make dev' to start development servers"
-echo "  4. Run 'make status' to check everything is running"
+echo "  1. (optional) Edit .env with your configuration (passwords, endpoints)"
+echo "  2. Run 'make test'   to run unit tests across all repos"
+echo "  3. Run 'make status' to check repo versions"
+echo ""
+echo "Local infrastructure services are opt-in and live in repos/omnibase_infra/."
+echo "See that repo's Makefile and docs/getting-started/ for how to run them."
 echo ""
