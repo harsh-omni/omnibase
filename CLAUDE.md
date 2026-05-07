@@ -93,11 +93,14 @@ Redpanda (Kafka-compatible) handles all inter-node communication. Nodes subscrib
 
 ## Key Commands
 
+The top-level `omnibase` Makefile is intentionally Docker-free. Local infra
+services live in `repos/omnibase_infra/` and are run from there.
+
 ```bash
-# Install everything (clone repos, build envs, install deps)
+# Install everything (clone repos, build envs, install deps). No Docker.
 make install
 
-# Set up environment and start Docker infrastructure
+# Create .env from template (idempotent).
 make setup
 
 # Start development servers
@@ -109,12 +112,27 @@ make test
 # Update all repos to latest main
 make update
 
-# Show repo versions and infrastructure health
+# Show cloned repo versions
 make status
+```
 
-# Start/stop Docker infrastructure
-make docker-up
-make docker-down
+### Local infra (Docker required)
+
+```bash
+# Start core infra bundle (postgres, redpanda, valkey, infisical)
+cd repos/omnibase_infra && make up
+
+# Add Keycloak
+cd repos/omnibase_infra && make up-auth
+
+# Reconcile Keycloak clients
+cd repos/omnibase_infra && make seed-keycloak
+
+# Show running containers
+cd repos/omnibase_infra && make status
+
+# Stop core
+cd repos/omnibase_infra && make down
 ```
 
 ### Per-Repo Commands
@@ -136,7 +154,13 @@ cd repos/omnibase_core && uv run onex --help
 
 ## Infrastructure
 
-The platform runs on Docker infrastructure started via `make docker-up`:
+Local infrastructure services (Postgres, Redpanda, Valkey, Keycloak,
+Infisical, etc.) are owned by `repos/omnibase_infra/`. The top-level
+`omnibase` repo never invokes Docker directly. To bring up local infra:
+
+```bash
+cd repos/omnibase_infra && make up
+```
 
 | Service | External Port (Host) | Internal Port (Docker) | Purpose |
 |---------|---------------------|----------------------|---------|
