@@ -13,3 +13,9 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# tmp
+.tmp/
+
+# docs
+docs/
